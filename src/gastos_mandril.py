@@ -1,37 +1,40 @@
+from pathlib import Path
 import pandas as pd
-import json
-
-from helpers import array_string_to_string
-
-INPUT_FILE = "data/GASTOS-MANDRIL_20250722.csv"
-OUTPUT_FILE = "output/images-products.json"
-
-rename_products_columns = {
-    "codigo": "code",
-    "producto": "name",
-    "precioVenta": "price",
-    "descripcion": "description",
-    "categoria_id": "categoryId",
-    "status": "isActive",
-}
-
-new_images: list[dict] = []
-
-df = pd.read_csv(INPUT_FILE, usecols=lambda x: x in ["Código", "Producto", "Fecha"])
-
-df_unique_codes_product = df.drop_duplicates(subset=["Código", "Producto"]).sort_values(
-    by="Código", ascending=True
-)
-
-df_duplicates_codes_products = df_unique_codes_product[
-    df_unique_codes_product["Código"].duplicated(keep=False)
-]
-
-df_unique_codes_product.to_csv("data/unique_codes.csv")
-df_duplicates_codes_products.to_csv("data/duplicate_codes.csv")
 
 
-# unique_codes = df[["Código", "Producto"]].nunique()
-# unique_codes_series = pd.Series(unique_codes)
+def gastos_mandril(lista_file, ventas_file, output_dir):
+    """
+    Analysis of gastos_mandril file (ventas)
+    """
 
-# unique_codes_series.to_csv("data/unique_codes.csv")
+    output_dir = Path(output_dir)
+
+    df_ventas = pd.read_csv(
+        ventas_file, usecols=lambda x: x in ["Código", "Producto", "Fecha"]
+    )
+    df_lista = pd.read_csv(lista_file, usecols=lambda x: x in ["Código", "Producto"])
+
+    df_unique_codes_product = df_ventas.drop_duplicates(
+        subset=["Código", "Producto"]
+    ).sort_values(by="Código", ascending=True)
+
+    df_duplicates_codes_products = df_unique_codes_product[
+        df_unique_codes_product["Código"].duplicated(keep=False)
+    ]
+
+    codigos_lista = set(df_lista["Código"].unique())
+    codigos_ventas = set(df_ventas["Código"].unique())
+
+    codigo_unicos_ventas = sorted(codigos_ventas - codigos_lista)
+    df_codigo_unicos_ventas = (
+        df_ventas[df_ventas["Código"].isin(codigo_unicos_ventas)]
+        .drop_duplicates(subset=["Código"])
+        .sort_values(by="Código", ascending=True)
+    )
+
+    print(codigo_unicos_ventas, len(codigo_unicos_ventas))
+    print(df_codigo_unicos_ventas)
+
+    # TO CSV
+    # df_unique_codes_product.to_csv(output_dir / "unique_codes.csv", encoding='utf-8-sig')
+    # df_duplicates_codes_products.to_csv(output_dir / "duplicate_codes.csv", encoding='utf-8-sig')
