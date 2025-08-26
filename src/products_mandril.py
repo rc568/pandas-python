@@ -1,65 +1,83 @@
 from pathlib import Path
 import pandas as pd
-import json
 
 from helpers import array_string_to_string
 
-rename_products_columns = {
-    "codigo": "code",
-    "producto": "name",
-    "precioVenta": "price",
-    "descripcion": "description",
-    "categoria_id": "categoryId",
-    "status": "isActive",
+gastos_columns = {
+    'Stock': 'quantityInStock',
+    'Precio Compra': 'purchasePrice',
 }
 
-def products_mandril(input_file, output_dir):
-    '''
+turso_columns = {
+    'producto': 'name',
+    'precioVenta': 'price',
+    'descripcion': 'description',
+    'categoria_id': 'categoryId',
+    'catalogo_id': 'catalogId',
+    'status': 'isActive',
+}
+
+
+def products_mandril(products_file, gastos_mandril, output_dir):
+    """
     Convert the .csv (from TursoDb) to json file for seed a database
-    
+
     Args:
-        input_file: Path for csv file
+        products_file: Path for csv file
+        gastos_mandril: Path for xlsx file
         output_dir: Output directory for files (images-products.json, products.json)
-        
+
     Returns:
-        void    
-    '''
-    
+        void
+    """
+
     output_dir = Path(output_dir)
-    
+    output_dir.mkdir(exist_ok=True, parents=True)
+
     new_images: list[dict] = []
 
-    df = pd.read_csv(input_file, usecols=lambda x: x not in ["subcategoria", "catalogo_id"])
-    # This Line is necessary to reset the id count (rows 160-161-162 where deleted)
-    df["id"] = range(1, len(df) + 1)
-    df["categoria_id"] = df["categoria_id"].apply(lambda x: x + 1)
+    df_gastos_lista = pd.read_excel(gastos_mandril, sheet_name='LISTA', index_col='Código').rename(
+        columns=gastos_columns
+    )
+    filter_valid_code = df_gastos_lista.index.str.match(pat='^MI(\d{3})$', na=False)
+    df_gastos_lista.drop(index=df_gastos_lista[~filter_valid_code].index, inplace=True)
 
-    for _, row in df.iterrows():
-        images = array_string_to_string(getattr(row, "images", ""))
-        for image in images:
-            new_images.append({"imageUrl": image, "productId": row["id"]})
-
-
-    df_products = (
-        df.drop(columns=["id", "images"])
-        .rename(columns=rename_products_columns)
-        .astype({"isActive": bool})
-        .copy()
+    df_turso = (
+        pd.read_csv(
+            products_file,
+            usecols=lambda x: x not in ['subcategoria', 'stock'],
+            index_col='codigo',
+        )
+        .rename(columns=turso_columns)
+        .astype({'isActive': bool})
     )
 
+    # This Line is necessary to reset the id count (codes MI217-MI218-MI219 where deleted)
+    df_turso['id'] = range(1, len(df_turso) + 1)
+    df_turso['categoryId'] = df_turso['categoryId'].apply(lambda x: x + 1)
+    df_turso['catalogId'] = df_turso['catalogId'].apply(lambda x: x + 1)
+
+    for _, row in df_turso.iterrows():
+        images = array_string_to_string(getattr(row, 'images', ''))
+        for image in images:
+            new_images.append({'imageUrl': image, 'productVariantId': row['id']})
+
+    df_merge = (
+        pd.merge(
+            df_turso,
+            df_gastos_lista[['quantityInStock', 'purchasePrice']],
+            how='left',
+            left_index=True,
+            right_index=True,
+        )
+        .reset_index()
+        .rename(columns={'codigo': 'code'})
+    )
+
+    df_product = df_merge[['name', 'slug', 'description', 'isActive', 'categoryId', 'catalogId']]
+    df_product_variant = df_merge[['code', 'price', 'quantityInStock', 'purchasePrice', 'isActive']]
     df_images = pd.DataFrame(new_images)
 
-    # TO CSV
-    # df_images.to_csv("output/products.csv", index=False)
-
-
-    # TO JSON
-    data_images = df_images.to_dict(orient="records")
-    data_products = df_products.to_dict(orient="records")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    with open(output_dir / "images-products.json", "w", encoding="utf-8") as f:
-        json.dump(data_images, f, ensure_ascii=False, indent=4)
-
-    with open(output_dir / "products.json", "w", encoding="utf-8") as f:
-        json.dump(data_products, f, ensure_ascii=False, indent=4)
+    df_images.to_json(output_dir.joinpath('images-products.json'), orient='records', force_ascii=False)
+    df_product.to_json(output_dir.joinpath('product.json'), orient='records', force_ascii=False)
+    df_product_variant.to_json(output_dir.joinpath('product-variant.json'), orient='records', force_ascii=False)

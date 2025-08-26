@@ -11,10 +11,10 @@ install-dev: .venv/bin/activate
 	uv sync --dev
 
 run:
-	python src/main.py
+	uv run src/main.py
 
 test:
-	pytest tests/
+	uv test tests/
 
-format:
-	ruff check . --fix
+lint:
+	uv run ruff check src/
